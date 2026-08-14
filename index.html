@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Binder — Track Library</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#14181c;
+    --surface:#1b2127;
+    --surface-alt:#232a32;
+    --border:#2e363f;
+    --border-soft:#252c33;
+    --text:#edeae3;
+    --text-dim:#8b939b;
+    --text-faint:#5a626b;
+    --accent:#c99a4b;
+    --accent-dim:#8a713c;
+    --accent-2:#4b8c88;
+    --danger:#c4573f;
+    --mono: 'IBM Plex Mono', ui-monospace, monospace;
+    --sans: 'IBM Plex Sans', -apple-system, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    min-height:100vh;
+  }
+  ::selection{ background:var(--accent-dim); color:var(--bg); }
+
+  /* ---- Header ---- */
+  header{
+    border-bottom:1px solid var(--border);
+    padding:28px 32px 22px;
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:12px;
+  }
+  .brand{ display:flex; align-items:baseline; gap:14px; }
+  .brand h1{
+    font-family:var(--mono);
+    font-weight:700;
+    font-size:22px;
+    letter-spacing:0.14em;
+    margin:0;
+    color:var(--text);
+  }
+  .brand .tag{
+    font-family:var(--sans);
+    font-size:13px;
+    color:var(--text-dim);
+    border-left:1px solid var(--border);
+    padding-left:14px;
+  }
+  .counter{
+    font-family:var(--mono);
+    font-size:13px;
+    color:var(--accent);
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .counter .dot{ width:6px; height:6px; border-radius:50%; background:var(--accent); opacity:0.7; }
+  .gear{
+    background:none; border:1px solid var(--border); color:var(--text-dim);
+    font-family:var(--mono); font-size:11px; letter-spacing:0.08em;
+    padding:6px 10px; border-radius:3px; cursor:pointer; margin-left:14px;
+  }
+  .gear:hover{ border-color:var(--accent-dim); color:var(--accent); }
+
+  main{ max-width:920px; margin:0 auto; padding:36px 32px 80px; }
+
+  /* ---- Config screen ---- */
+  .config-panel{
+    max-width:480px; margin:60px auto; background:var(--surface);
+    border:1px solid var(--border); border-radius:6px; padding:32px;
+  }
+  .config-panel h2{
+    font-family:var(--mono); font-size:15px; letter-spacing:0.08em;
+    margin:0 0 6px; color:var(--text);
+  }
+  .config-panel p{ color:var(--text-dim); font-size:13px; line-height:1.6; margin:0 0 24px; }
+  .field{ margin-bottom:16px; }
+  .field label{
+    display:block; font-family:var(--mono); font-size:11px; letter-spacing:0.08em;
+    color:var(--text-dim); margin-bottom:6px; text-transform:uppercase;
+  }
+  .field input{
+    width:100%; background:var(--bg); border:1px solid var(--border);
+    color:var(--text); padding:10px 12px; border-radius:4px;
+    font-family:var(--mono); font-size:13px;
+  }
+  .field input:focus{ outline:none; border-color:var(--accent-dim); }
+  .field .hint{ font-size:11px; color:var(--text-faint); margin-top:5px; }
+  .btn{
+    font-family:var(--mono); font-size:12px; letter-spacing:0.06em;
+    background:var(--accent); color:var(--bg); border:none;
+    padding:10px 18px; border-radius:4px; cursor:pointer; font-weight:600;
+  }
+  .btn:hover{ background:#d9ac5e; }
+  .btn:disabled{ background:var(--border); color:var(--text-faint); cursor:default; }
+  .btn-ghost{
+    background:none; border:1px solid var(--border); color:var(--text-dim);
+  }
+  .btn-ghost:hover{ border-color:var(--accent-dim); color:var(--accent); }
+  .error-msg{
+    background:rgba(196,87,63,0.1); border:1px solid rgba(196,87,63,0.4);
+    color:#e08b78; font-size:12px; padding:10px 12px; border-radius:4px; margin-top:14px;
+  }
+
+  /* ---- Drop zone ---- */
+  .dropzone{
+    border:1px dashed var(--border);
+    border-radius:6px;
+    padding:28px;
+    text-align:center;
+    color:var(--text-dim);
+    font-size:13px;
+    margin-bottom:28px;
+    cursor:pointer;
+    transition:border-color .15s, background .15s;
+  }
+  .dropzone:hover, .dropzone.drag{
+    border-color:var(--accent);
+    background:rgba(201,154,75,0.05);
+  }
+  .dropzone .dz-title{
+    font-family:var(--mono); color:var(--text); font-size:13px; letter-spacing:0.04em; margin-bottom:4px;
+  }
+  .dropzone .dz-sub{ font-size:11px; color:var(--text-faint); }
+  input[type=file]{ display:none; }
+
+  /* ---- Search / toolbar ---- */
+  .toolbar{
+    display:flex; align-items:center; gap:12px; margin-bottom:18px;
+  }
+  .toolbar input[type=text]{
+    flex:1; background:var(--surface); border:1px solid var(--border);
+    color:var(--text); padding:10px 14px; border-radius:4px;
+    font-family:var(--sans); font-size:13px;
+  }
+  .toolbar input[type=text]:focus{ outline:none; border-color:var(--accent-dim); }
+  .toolbar input[type=text]::placeholder{ color:var(--text-faint); }
+
+  /* ---- Track list ---- */
+  .list-head{
+    display:grid; grid-template-columns:78px 1fr 90px 100px 44px;
+    padding:0 14px 8px; gap:14px;
+    font-family:var(--mono); font-size:10px; letter-spacing:0.1em;
+    color:var(--text-faint); text-transform:uppercase;
+    border-bottom:1px solid var(--border-soft);
+    margin-bottom:4px;
+  }
+  .track{
+    display:grid; grid-template-columns:78px 1fr 90px 100px 44px;
+    align-items:center; gap:14px;
+    padding:13px 14px;
+    border-bottom:1px solid var(--border-soft);
+    font-size:13px;
+  }
+  .track:hover{ background:var(--surface); }
+  .code{
+    font-family:var(--mono); color:var(--accent); font-size:12px;
+    letter-spacing:0.05em; font-weight:600;
+  }
+  .title-cell{ min-width:0; }
+  .title-text{
+    color:var(--text); cursor:text; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    padding:3px 5px; margin:-3px -5px; border-radius:3px;
+  }
+  .title-text:hover{ background:var(--surface-alt); }
+  .title-text[contenteditable=true]{ background:var(--surface-alt); outline:1px solid var(--accent-dim); white-space:normal; }
+  .meta{ color:var(--text-dim); font-family:var(--mono); font-size:11px; }
+  .dl-btn{
+    background:none; border:1px solid var(--border); color:var(--text-dim);
+    width:32px; height:32px; border-radius:4px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .dl-btn:hover{ border-color:var(--accent); color:var(--accent); }
+  .dl-btn:disabled{ opacity:0.4; cursor:default; }
+
+  .empty-state{
+    text-align:center; padding:60px 20px; color:var(--text-faint);
+    font-family:var(--mono); font-size:12px; letter-spacing:0.04em;
+  }
+
+  /* ---- Upload progress ---- */
+  .progress-panel{
+    background:var(--surface); border:1px solid var(--border); border-radius:6px;
+    padding:14px 16px; margin-bottom:20px; font-family:var(--mono); font-size:12px;
+  }
+  .progress-row{ display:flex; justify-content:space-between; margin-bottom:8px; color:var(--text-dim); }
+  .progress-bar-track{ height:4px; background:var(--border); border-radius:2px; overflow:hidden; }
+  .progress-bar-fill{ height:100%; background:var(--accent); width:0%; transition:width .2s; }
+  .progress-file{ font-size:11px; color:var(--text-faint); margin-top:6px; }
+
+  @media (max-width:600px){
+    .list-head{ display:none; }
+    .track{ grid-template-columns:1fr auto; grid-template-areas:"code dl" "title title" "meta meta"; row-gap:4px; }
+    .code{ grid-area:code; } .dl-btn{ grid-area:dl; justify-self:end; }
+    .title-cell{ grid-area:title; } .meta{ grid-area:meta; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <h1>BINDER</h1>
+    <span class="tag">Blue Bandit track library</span>
+  </div>
+  <div style="display:flex; align-items:center;">
+    <div class="counter" id="counter"><span class="dot"></span><span id="counterText">—</span></div>
+    <button class="gear" id="gearBtn" title="Connection settings">CONFIG</button>
+  </div>
+</header>
+
+<main>
+  <div id="configScreen" style="display:none;">
+    <div class="config-panel">
+      <h2>CONNECT REPOSITORY</h2>
+      <p>Binder stores tracks and metadata in a GitHub repo. Create an empty repo first, then connect it here. A token is required to upload — generate one at github.com/settings/tokens with <b>repo</b> scope.</p>
+      <div class="field">
+        <label>Repo owner</label>
+        <input type="text" id="cfgOwner" placeholder="e.g. Editron11183" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>Repo name</label>
+        <input type="text" id="cfgRepo" placeholder="e.g. binder" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>Personal access token</label>
+        <input type="password" id="cfgToken" placeholder="ghp_..." autocomplete="off">
+        <div class="hint">Stored only in this browser tab's session — cleared when the tab closes.</div>
+      </div>
+      <button class="btn" id="connectBtn">Connect</button>
+      <div id="cfgError"></div>
+    </div>
+  </div>
+
+  <div id="appScreen" style="display:none;">
+    <div class="dropzone" id="dropzone">
+      <div class="dz-title">DROP MP3 FILES HERE</div>
+      <div class="dz-sub">or click to browse — multiple files supported</div>
+      <input type="file" id="fileInput" accept="audio/mpeg,.mp3" multiple>
+    </div>
+
+    <div class="progress-panel" id="progressPanel" style="display:none;">
+      <div class="progress-row"><span id="progressLabel">Uploading…</span><span id="progressCount"></span></div>
+      <div class="progress-bar-track"><div class="progress-bar-fill" id="progressFill"></div></div>
+      <div class="progress-file" id="progressFile"></div>
+    </div>
+
+    <div class="toolbar">
+      <input type="text" id="searchInput" placeholder="Search by title or sequence code…">
+    </div>
+
+    <div class="list-head">
+      <span>Code</span><span>Title</span><span>Size</span><span>Added</span><span></span>
+    </div>
+    <div id="trackList"></div>
+    <div class="empty-state" id="emptyState" style="display:none;">No tracks yet — drop MP3 files above to begin.</div>
+  </div>
+</main>
+
+<script>
+(function(){
+  const API = 'https://api.github.com';
+  let CFG = null;         // {owner, repo, token}
+  let manifest = null;    // {tracks:[...]}
+  let manifestSha = null;
+  let allTracks = [];
+
+  const $ = id => document.getElementById(id);
+
+  // ---------- Config ----------
+  function loadConfig(){
+    const raw = sessionStorage.getItem('binder_config');
+    if(raw){ try{ CFG = JSON.parse(raw); }catch(e){ CFG = null; } }
+  }
+  function saveConfig(cfg){
+    CFG = cfg;
+    sessionStorage.setItem('binder_config', JSON.stringify(cfg));
+  }
+
+  function ghHeaders(extra){
+    return Object.assign({
+      'Authorization': 'token ' + CFG.token,
+      'Accept': 'application/vnd.github.v3+json'
+    }, extra || {});
+  }
+
+  async function testConnection(){
+    const res = await fetch(`${API}/repos/${CFG.owner}/${CFG.repo}`, { headers: ghHeaders() });
+    if(!res.ok) throw new Error(res.status === 404 ? 'Repo not found — check owner/name.' : 'Could not authenticate — check your token.');
+  }
+
+  $('gearBtn').addEventListener('click', () => showConfigScreen(true));
+  $('connectBtn').addEventListener('click', async () => {
+    const owner = $('cfgOwner').value.trim();
+    const repo = $('cfgRepo').value.trim();
+    const token = $('cfgToken').value.trim();
+    $('cfgError').innerHTML = '';
+    if(!owner || !repo || !token){
+      $('cfgError').innerHTML = '<div class="error-msg">All three fields are required.</div>';
+      return;
+    }
+    $('connectBtn').disabled = true;
+    $('connectBtn').textContent = 'Connecting…';
+    try{
+      saveConfig({owner, repo, token});
+      await testConnection();
+      await init();
+    }catch(err){
+      $('cfgError').innerHTML = `<div class="error-msg">${err.message}</div>`;
+      CFG = null;
+      sessionStorage.removeItem('binder_config');
+    }finally{
+      $('connectBtn').disabled = false;
+      $('connectBtn').textContent = 'Connect';
+    }
+  });
+
+  function showConfigScreen(prefill){
+    $('configScreen').style.display = 'block';
+    $('appScreen').style.display = 'none';
+    if(prefill && CFG){
+      $('cfgOwner').value = CFG.owner;
+      $('cfgRepo').value = CFG.repo;
+    }
+  }
+  function showAppScreen(){
+    $('configScreen').style.display = 'none';
+    $('appScreen').style.display = 'block';
+  }
+
+  // ---------- Manifest ----------
+  async function fetchManifest(){
+    const res = await fetch(`${API}/repos/${CFG.owner}/${CFG.repo}/contents/manifest.json`, { headers: ghHeaders() });
+    if(res.status === 404){
+      manifest = { tracks: [] };
+      manifestSha = null;
+      return;
+    }
+    if(!res.ok) throw new Error('Failed to load manifest.json');
+    const data = await res.json();
+    manifestSha = data.sha;
+    const decoded = decodeURIComponent(escape(atob(data.content.replace(/\n/g,''))));
+    manifest = JSON.parse(decoded);
+    if(!Array.isArray(manifest.tracks)) manifest.tracks = [];
+  }
+
+  async function saveManifest(){
+    const content = btoa(unescape(encodeURIComponent(JSON.stringify(manifest, null, 2))));
+    const body = {
+      message: 'Update manifest',
+      content,
+      branch: 'main'
+    };
+    if(manifestSha) body.sha = manifestSha;
+    const res = await fetch(`${API}/repos/${CFG.owner}/${CFG.repo}/contents/manifest.json`, {
+      method: 'PUT',
+      headers: ghHeaders({'Content-Type':'application/json'}),
+      body: JSON.stringify(body)
+    });
+    if(!res.ok){
+      const err = await res.json().catch(()=>({}));
+      throw new Error('Failed to save manifest.json: ' + (err.message || res.status));
+    }
+    const data = await res.json();
+    manifestSha = data.content.sha;
+  }
+
+  function nextSequenceCode(){
+    let max = 0;
+    manifest.tracks.forEach(t => {
+      const m = /^BB-(\d+)$/.exec(t.code || '');
+      if(m) max = Math.max(max, parseInt(m[1], 10));
+    });
+    return 'BB-' + String(max + 1).padStart(3, '0');
+  }
+
+  function titleFromFilename(name){
+    return name.replace(/\.mp3$/i, '').replace(/[_-]+/g,' ').trim();
+  }
+
+  function sanitizeFilename(name){
+    return name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  }
+
+  // ---------- Upload ----------
+  function arrayBufferToBase64(buffer){
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    const chunk = 0x8000;
+    for(let i = 0; i < bytes.length; i += chunk){
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    }
+    return btoa(binary);
+  }
+
+  function formatBytes(bytes){
+    if(bytes < 1024*1024) return (bytes/1024).toFixed(0) + ' KB';
+    return (bytes/(1024*1024)).toFixed(1) + ' MB';
+  }
+
+  async function uploadFile(file, index, total){
+    $('progressFile').textContent = file.name;
+    $('progressCount').textContent = `${index+1} / ${total}`;
+    $('progressFill').style.width = Math.round(((index)/total)*100) + '%';
+
+    const buffer = await file.arrayBuffer();
+    const base64 = arrayBufferToBase64(buffer);
+    const safeName = sanitizeFilename(file.name);
+    const path = `audio/${Date.now()}_${safeName}`;
+
+    const res = await fetch(`${API}/repos/${CFG.owner}/${CFG.repo}/contents/${encodeURIComponent(path)}`, {
+      method: 'PUT',
+      headers: ghHeaders({'Content-Type':'application/json'}),
+      body: JSON.stringify({
+        message: `Add track: ${file.name}`,
+        content: base64,
+        branch: 'main'
+      })
+    });
+    if(!res.ok){
+      const err = await res.json().catch(()=>({}));
+      throw new Error(`Upload failed for ${file.name}: ${err.message || res.status}`);
+    }
+
+    const code = nextSequenceCode();
+    manifest.tracks.push({
+      code,
+      title: titleFromFilename(file.name),
+      path,
+      size: file.size,
+      addedAt: new Date().toISOString()
+    });
+  }
+
+  async function handleFiles(fileList){
+    const files = Array.from(fileList).filter(f => /\.mp3$/i.test(f.name) || f.type === 'audio/mpeg');
+    if(files.length === 0) return;
+
+    $('progressPanel').style.display = 'block';
+    $('progressLabel').textContent = 'Uploading tracks…';
+
+    let failures = [];
+    for(let i = 0; i < files.length; i++){
+      try{
+        await uploadFile(files[i], i, files.length);
+      }catch(err){
+        failures.push(err.message);
+      }
+    }
+    $('progressFill').style.width = '100%';
+    $('progressFile').textContent = 'Saving catalog…';
+
+    try{
+      await saveManifest();
+    }catch(err){
+      failures.push(err.message);
+    }
+
+    $('progressPanel').style.display = 'none';
+    renderTracks();
+    updateCounter();
+
+    if(failures.length){
+      alert('Some files had problems:\n\n' + failures.join('\n'));
+    }
+  }
+
+  // ---------- Download ----------
+  async function downloadTrack(track, btn){
+    btn.disabled = true;
+    try{
+      const res = await fetch(`${API}/repos/${CFG.owner}/${CFG.repo}/contents/${encodeURIComponent(track.path)}`, {
+        headers: ghHeaders({'Accept':'application/vnd.github.v3.raw'})
+      });
+      if(!res.ok) throw new Error('Download failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = track.title.replace(/[^a-zA-Z0-9 _-]/g,'') + '.mp3';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 4000);
+    }catch(err){
+      alert('Could not download "' + track.title + '": ' + err.message);
+    }finally{
+      btn.disabled = false;
+    }
+  }
+
+  // ---------- Rename ----------
+  async function renameTrack(track, newTitle, el){
+    newTitle = newTitle.trim();
+    if(!newTitle || newTitle === track.title){ el.textContent = track.title; return; }
+    track.title = newTitle;
+    try{
+      await saveManifest();
+    }catch(err){
+      alert('Could not save new title: ' + err.message);
+    }
+  }
+
+  // ---------- Render ----------
+  function updateCounter(){
+    $('counterText').textContent = `${manifest.tracks.length} TRACK${manifest.tracks.length === 1 ? '' : 'S'}`;
+  }
+
+  function renderTracks(){
+    const q = $('searchInput').value.trim().toLowerCase();
+    allTracks = manifest.tracks.slice().sort((a,b) => a.code.localeCompare(b.code));
+    const filtered = q
+      ? allTracks.filter(t => t.title.toLowerCase().includes(q) || t.code.toLowerCase().includes(q))
+      : allTracks;
+
+    const list = $('trackList');
+    list.innerHTML = '';
+    $('emptyState').style.display = (manifest.tracks.length === 0) ? 'block' : 'none';
+
+    filtered.forEach(track => {
+      const row = document.createElement('div');
+      row.className = 'track';
+
+      const code = document.createElement('span');
+      code.className = 'code';
+      code.textContent = track.code;
+
+      const titleCell = document.createElement('div');
+      titleCell.className = 'title-cell';
+      const titleSpan = document.createElement('span');
+      titleSpan.className = 'title-text';
+      titleSpan.textContent = track.title;
+      titleSpan.contentEditable = 'true';
+      titleSpan.spellcheck = false;
+      titleSpan.addEventListener('blur', () => renameTrack(track, titleSpan.textContent, titleSpan));
+      titleSpan.addEventListener('keydown', e => {
+        if(e.key === 'Enter'){ e.preventDefault(); titleSpan.blur(); }
+      });
+      titleCell.appendChild(titleSpan);
+
+      const size = document.createElement('span');
+      size.className = 'meta';
+      size.textContent = formatBytes(track.size || 0);
+
+      const added = document.createElement('span');
+      added.className = 'meta';
+      added.textContent = track.addedAt ? track.addedAt.slice(0,10) : '—';
+
+      const dlBtn = document.createElement('button');
+      dlBtn.className = 'dl-btn';
+      dlBtn.title = 'Download';
+      dlBtn.innerHTML = '&#8595;';
+      dlBtn.addEventListener('click', () => downloadTrack(track, dlBtn));
+
+      row.appendChild(code);
+      row.appendChild(titleCell);
+      row.appendChild(size);
+      row.appendChild(added);
+      row.appendChild(dlBtn);
+      list.appendChild(row);
+    });
+  }
+
+  $('searchInput').addEventListener('input', renderTracks);
+
+  // ---------- Dropzone ----------
+  const dz = $('dropzone');
+  dz.addEventListener('click', () => $('fileInput').click());
+  $('fileInput').addEventListener('change', e => handleFiles(e.target.files));
+  ['dragenter','dragover'].forEach(evt => dz.addEventListener(evt, e => {
+    e.preventDefault(); dz.classList.add('drag');
+  }));
+  ['dragleave','drop'].forEach(evt => dz.addEventListener(evt, e => {
+    e.preventDefault(); dz.classList.remove('drag');
+  }));
+  dz.addEventListener('drop', e => handleFiles(e.dataTransfer.files));
+
+  // ---------- Init ----------
+  async function init(){
+    try{
+      await fetchManifest();
+      showAppScreen();
+      updateCounter();
+      renderTracks();
+    }catch(err){
+      showConfigScreen(true);
+      $('cfgError').innerHTML = `<div class="error-msg">${err.message}</div>`;
+    }
+  }
+
+  loadConfig();
+  if(CFG){ init(); } else { showConfigScreen(false); }
+})();
+</script>
+</body>
+</html>
