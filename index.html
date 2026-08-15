@@ -34,7 +34,6 @@
   }
   ::selection{ background:var(--accent-dim); color:var(--bg); }
 
-  /* ---- Header ---- */
   header{
     border-bottom:1px solid var(--border);
     padding:28px 32px 22px;
@@ -78,7 +77,6 @@
 
   main{ max-width:920px; margin:0 auto; padding:36px 32px 80px; }
 
-  /* ---- Config screen ---- */
   .config-panel{
     max-width:480px; margin:60px auto; background:var(--surface);
     border:1px solid var(--border); border-radius:6px; padding:32px;
@@ -116,7 +114,6 @@
     color:#e08b78; font-size:12px; padding:10px 12px; border-radius:4px; margin-top:14px;
   }
 
-  /* ---- Drop zone ---- */
   .dropzone{
     border:1px dashed var(--border);
     border-radius:6px;
@@ -126,6 +123,7 @@
     font-size:13px;
     margin-bottom:28px;
     cursor:pointer;
+    position:relative;
     transition:border-color .15s, background .15s;
   }
   .dropzone:hover, .dropzone.drag{
@@ -136,9 +134,15 @@
     font-family:var(--mono); color:var(--text); font-size:13px; letter-spacing:0.04em; margin-bottom:4px;
   }
   .dropzone .dz-sub{ font-size:11px; color:var(--text-faint); }
-  input[type=file]{ display:none; }
+  input[type=file]{
+    position:absolute;
+    inset:0;
+    width:100%;
+    height:100%;
+    opacity:0;
+    cursor:pointer;
+  }
 
-  /* ---- Search / toolbar ---- */
   .toolbar{
     display:flex; align-items:center; gap:12px; margin-bottom:18px;
   }
@@ -150,7 +154,6 @@
   .toolbar input[type=text]:focus{ outline:none; border-color:var(--accent-dim); }
   .toolbar input[type=text]::placeholder{ color:var(--text-faint); }
 
-  /* ---- Track list ---- */
   .list-head{
     display:grid; grid-template-columns:78px 1fr 90px 100px 44px;
     padding:0 14px 8px; gap:14px;
@@ -192,7 +195,6 @@
     font-family:var(--mono); font-size:12px; letter-spacing:0.04em;
   }
 
-  /* ---- Upload progress ---- */
   .progress-panel{
     background:var(--surface); border:1px solid var(--border); border-radius:6px;
     padding:14px 16px; margin-bottom:20px; font-family:var(--mono); font-size:12px;
@@ -274,14 +276,13 @@
 <script>
 (function(){
   const API = 'https://api.github.com';
-  let CFG = null;         // {owner, repo, token}
-  let manifest = null;    // {tracks:[...]}
+  let CFG = null;
+  let manifest = null;
   let manifestSha = null;
   let allTracks = [];
 
   const $ = id => document.getElementById(id);
 
-  // ---------- Config ----------
   function loadConfig(){
     const raw = sessionStorage.getItem('binder_config');
     if(raw){ try{ CFG = JSON.parse(raw); }catch(e){ CFG = null; } }
@@ -342,7 +343,6 @@
     $('appScreen').style.display = 'block';
   }
 
-  // ---------- Manifest ----------
   async function fetchManifest(){
     const res = await fetch(`${API}/repos/${CFG.owner}/${CFG.repo}/contents/manifest.json`, { headers: ghHeaders() });
     if(res.status === 404){
@@ -388,7 +388,6 @@
     return name.replace(/[^a-zA-Z0-9._-]/g, '_');
   }
 
-  // ---------- Upload ----------
   function arrayBufferToBase64(buffer){
     let binary = '';
     const bytes = new Uint8Array(buffer);
@@ -406,9 +405,6 @@
 
   function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
 
-  // GitHub throttles rapid successive writes ("secondary rate limit"), which
-  // shows up as a 403 with a Retry-After style message. Space writes out and
-  // back off automatically if it happens anyway.
   const UPLOAD_PACING_MS = 1500;
 
   async function putWithRetry(path, body, label, maxRetries){
@@ -423,7 +419,7 @@
 
       const isRateLimited = res.status === 403 || res.status === 429;
       if(isRateLimited && attempt < maxRetries){
-        const waitSec = 15 * (attempt + 1); // 15s, 30s, 45s backoff
+        const waitSec = 15 * (attempt + 1);
         $('progressFile').textContent = `Rate limited by GitHub — retrying "${label}" in ${waitSec}s…`;
         await sleep(waitSec * 1000);
         continue;
@@ -475,10 +471,8 @@
       }catch(err){
         failures.push(err.message);
       }
-      // Checkpoint the catalog every 10 tracks so progress survives even if
-      // a later file fails or the tab gets closed mid-batch.
       if(sinceCheckpoint >= 10){
-        try{ await saveManifest(); sinceCheckpoint = 0; }catch(e){ /* will retry at final save */ }
+        try{ await saveManifest(); sinceCheckpoint = 0; }catch(e){}
       }
       if(i < files.length - 1) await sleep(UPLOAD_PACING_MS);
     }
@@ -500,7 +494,6 @@
     }
   }
 
-  // ---------- Download ----------
   async function downloadTrack(track, btn){
     btn.disabled = true;
     try{
@@ -524,7 +517,6 @@
     }
   }
 
-  // ---------- Rename ----------
   async function renameTrack(track, newTitle, el){
     newTitle = newTitle.trim();
     if(!newTitle || newTitle === track.title){ el.textContent = track.title; return; }
@@ -536,7 +528,6 @@
     }
   }
 
-  // ---------- Render ----------
   function updateCounter(){
     $('counterText').textContent = `${manifest.tracks.length} TRACK${manifest.tracks.length === 1 ? '' : 'S'}`;
   }
@@ -598,10 +589,8 @@
 
   $('searchInput').addEventListener('input', renderTracks);
 
-  // ---------- Dropzone ----------
   const dz = $('dropzone');
-  dz.addEventListener('click', () => $('fileInput').click());
-  $('fileInput').addEventListener('change', e => handleFiles(e.target.files));
+  $('fileInput').addEventListener('change', e => { handleFiles(e.target.files); e.target.value = ''; });
   ['dragenter','dragover'].forEach(evt => dz.addEventListener(evt, e => {
     e.preventDefault(); dz.classList.add('drag');
   }));
@@ -610,7 +599,6 @@
   }));
   dz.addEventListener('drop', e => handleFiles(e.dataTransfer.files));
 
-  // ---------- Init ----------
   async function init(){
     try{
       await fetchManifest();
