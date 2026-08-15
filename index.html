@@ -155,7 +155,7 @@
   .toolbar input[type=text]::placeholder{ color:var(--text-faint); }
 
   .list-head{
-    display:grid; grid-template-columns:78px 1fr 90px 100px 44px;
+    display:grid; grid-template-columns:78px 1fr 90px 100px 44px 44px;
     padding:0 14px 8px; gap:14px;
     font-family:var(--mono); font-size:10px; letter-spacing:0.1em;
     color:var(--text-faint); text-transform:uppercase;
@@ -163,7 +163,7 @@
     margin-bottom:4px;
   }
   .track{
-    display:grid; grid-template-columns:78px 1fr 90px 100px 44px;
+    display:grid; grid-template-columns:78px 1fr 90px 100px 44px 44px;
     align-items:center; gap:14px;
     padding:13px 14px;
     border-bottom:1px solid var(--border-soft);
@@ -189,6 +189,7 @@
   }
   .dl-btn:hover{ border-color:var(--accent); color:var(--accent); }
   .dl-btn:disabled{ opacity:0.4; cursor:default; }
+  .del-btn:hover{ border-color:var(--danger); color:var(--danger); }
 
   .empty-state{
     text-align:center; padding:60px 20px; color:var(--text-faint);
@@ -206,8 +207,8 @@
 
   @media (max-width:600px){
     .list-head{ display:none; }
-    .track{ grid-template-columns:1fr auto; grid-template-areas:"code dl" "title title" "meta meta"; row-gap:4px; }
-    .code{ grid-area:code; } .dl-btn{ grid-area:dl; justify-self:end; }
+    .track{ grid-template-columns:1fr auto auto; grid-template-areas:"code dl del" "title title title" "meta meta meta"; row-gap:4px; }
+    .code{ grid-area:code; } .dl-btn{ grid-area:dl; justify-self:end; } .del-btn{ grid-area:del; justify-self:end; }
     .title-cell{ grid-area:title; } .meta{ grid-area:meta; }
   }
 </style>
@@ -389,6 +390,11 @@
     return m ? m[1].toLowerCase() : 'mp3';
   }
 
+  async function hashFile(buffer){
+    const digest = await crypto.subtle.digest('SHA-256', buffer);
+    return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2,'0')).join('');
+  }
+
   function sanitizeFilename(name){
     return name.replace(/[^a-zA-Z0-9._-]/g, '_');
   }
@@ -434,21 +440,31 @@
     }
   }
 
-  async function uploadFile(file, index, total){
+  async function uploadFile(file, index, total, seenHashes){
     $('progressFile').textContent = file.name;
     $('progressCount').textContent = `${index+1} / ${total}`;
     $('progressFill').style.width = Math.round(((index)/total)*100) + '%';
 
     const buffer = await file.arrayBuffer();
+    const hash = await hashFile(buffer);
+
+    const existing = manifest.tracks.find(t => t.hash === hash);
+    if(existing || seenHashes.has(hash)){
+      const matchLabel = existing ? `${existing.code} "${existing.title}"` : 'another file in this batch';
+      throw new Error(`Skipped duplicate: ${file.name} — identical content already in library as ${matchLabel}.`);
+    }
+    seenHashes.add(hash);
+
     const base64 = arrayBufferToBase64(buffer);
     const safeName = sanitizeFilename(file.name);
     const path = `audio/${Date.now()}_${safeName}`;
 
-    await putWithRetry(path, {
+    const res = await putWithRetry(path, {
       message: `Add track: ${file.name}`,
       content: base64,
       branch: 'main'
     }, file.name);
+    const data = await res.json();
 
     const code = nextSequenceCode();
     manifest.tracks.push({
@@ -457,6 +473,8 @@
       path,
       ext: fileExtension(file.name),
       size: file.size,
+      hash,
+      sha: data.content.sha,
       addedAt: new Date().toISOString()
     });
   }
@@ -469,13 +487,16 @@
     $('progressLabel').textContent = 'Uploading tracks…';
 
     let failures = [];
+    let duplicates = [];
     let sinceCheckpoint = 0;
+    const seenHashes = new Set();
     for(let i = 0; i < files.length; i++){
       try{
-        await uploadFile(files[i], i, files.length);
+        await uploadFile(files[i], i, files.length, seenHashes);
         sinceCheckpoint++;
       }catch(err){
-        failures.push(err.message);
+        if(err.message.startsWith('Skipped duplicate')) duplicates.push(err.message);
+        else failures.push(err.message);
       }
       if(sinceCheckpoint >= 10){
         try{ await saveManifest(); sinceCheckpoint = 0; }catch(e){}
@@ -495,8 +516,11 @@
     renderTracks();
     updateCounter();
 
-    if(failures.length){
-      alert('Some files had problems:\n\n' + failures.join('\n'));
+    if(failures.length || duplicates.length){
+      const parts = [];
+      if(duplicates.length) parts.push(duplicates.join('\n'));
+      if(failures.length) parts.push(failures.join('\n'));
+      alert('Heads up:\n\n' + parts.join('\n\n'));
     }
   }
 
@@ -519,6 +543,31 @@
     }catch(err){
       alert('Could not download "' + track.title + '": ' + err.message);
     }finally{
+      btn.disabled = false;
+    }
+  }
+
+  async function deleteTrack(track, btn){
+    if(!confirm(`Delete "${track.title}" (${track.code})? This removes the audio file permanently.`)) return;
+    btn.disabled = true;
+    try{
+      if(track.sha){
+        const res = await fetch(`${API}/repos/${CFG.owner}/${CFG.repo}/contents/${encodeURIComponent(track.path)}`, {
+          method: 'DELETE',
+          headers: ghHeaders({'Content-Type':'application/json'}),
+          body: JSON.stringify({ message: `Delete track: ${track.title}`, sha: track.sha, branch: 'main' })
+        });
+        if(!res.ok){
+          const err = await res.json().catch(()=>({}));
+          throw new Error(err.message || res.status);
+        }
+      }
+      manifest.tracks = manifest.tracks.filter(t => t.path !== track.path);
+      await saveManifest();
+      renderTracks();
+      updateCounter();
+    }catch(err){
+      alert('Could not delete "' + track.title + '": ' + err.message);
       btn.disabled = false;
     }
   }
@@ -584,11 +633,18 @@
       dlBtn.innerHTML = '&#8595;';
       dlBtn.addEventListener('click', () => downloadTrack(track, dlBtn));
 
+      const delBtn = document.createElement('button');
+      delBtn.className = 'dl-btn del-btn';
+      delBtn.title = 'Delete';
+      delBtn.innerHTML = '&#10005;';
+      delBtn.addEventListener('click', () => deleteTrack(track, delBtn));
+
       row.appendChild(code);
       row.appendChild(titleCell);
       row.appendChild(size);
       row.appendChild(added);
       row.appendChild(dlBtn);
+      row.appendChild(delBtn);
       list.appendChild(row);
     });
   }
