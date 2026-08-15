@@ -297,6 +297,10 @@
   let currentTimeout = null;
   let currentTrackPath = null;
   let currentPlayCell = null;
+  let currentAnalyser = null;
+  let currentDataArray = null;
+  let currentDeadline = null;
+  let currentRemainingMs = null;
   const PREVIEW_SECONDS = 40;
 
   const $ = id => document.getElementById(id);
@@ -603,7 +607,7 @@
     cell.innerHTML = '';
     const wf = document.createElement('div');
     wf.className = 'waveform';
-    wf.title = 'Click to stop';
+    wf.title = 'Click to pause';
     for(let i = 0; i < 7; i++){
       const bar = document.createElement('span');
       bar.className = 'bar';
@@ -629,11 +633,46 @@
     currentTimeout = null;
     currentTrackPath = null;
     currentPlayCell = null;
+    currentAnalyser = null;
+    currentDataArray = null;
+    currentDeadline = null;
+    currentRemainingMs = null;
+  }
+
+  function animateBars(){
+    if(!currentAnalyser || !currentPlayCell) return;
+    const bars = currentPlayCell.querySelectorAll('.bar');
+    if(!bars.length) return;
+    currentAnalyser.getByteFrequencyData(currentDataArray);
+    const step = Math.max(1, Math.floor(currentDataArray.length / bars.length));
+    bars.forEach((bar, i) => {
+      const v = currentDataArray[i * step] || 0;
+      bar.style.height = Math.max(3, (v / 255) * 24) + 'px';
+    });
+    currentRAF = requestAnimationFrame(animateBars);
+  }
+
+  function pauseOrResume(){
+    if(!currentAudio || !currentPlayCell) return;
+    if(currentAudio.paused){
+      currentAudio.play();
+      const remaining = currentRemainingMs != null ? currentRemainingMs : PREVIEW_SECONDS * 1000;
+      currentDeadline = Date.now() + remaining;
+      currentTimeout = setTimeout(stopPlayback, remaining);
+      renderWaveform(currentPlayCell);
+      animateBars();
+    }else{
+      currentAudio.pause();
+      if(currentTimeout) clearTimeout(currentTimeout);
+      if(currentRAF) cancelAnimationFrame(currentRAF);
+      currentRemainingMs = currentDeadline ? Math.max(0, currentDeadline - Date.now()) : PREVIEW_SECONDS * 1000;
+      renderPlayIcon(currentPlayCell);
+    }
   }
 
   async function togglePlay(track, cell){
     if(currentTrackPath === track.path){
-      stopPlayback();
+      pauseOrResume();
       return;
     }
     stopPlayback();
@@ -667,27 +706,17 @@
       source.connect(analyser);
       analyser.connect(ctx.destination);
       currentAudioCtx = ctx;
+      currentAnalyser = analyser;
+      currentDataArray = new Uint8Array(analyser.frequencyBinCount);
 
       renderWaveform(cell);
-      cell.querySelector('.waveform').addEventListener('click', stopPlayback);
-      const bars = cell.querySelectorAll('.bar');
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-      function animate(){
-        analyser.getByteFrequencyData(dataArray);
-        const step = Math.max(1, Math.floor(dataArray.length / bars.length));
-        bars.forEach((bar, i) => {
-          const v = dataArray[i * step] || 0;
-          bar.style.height = Math.max(3, (v / 255) * 24) + 'px';
-        });
-        currentRAF = requestAnimationFrame(animate);
-      }
 
       audio.addEventListener('ended', stopPlayback);
       audio.addEventListener('error', stopPlayback);
 
       await audio.play();
-      animate();
+      animateBars();
+      currentDeadline = Date.now() + PREVIEW_SECONDS * 1000;
       currentTimeout = setTimeout(stopPlayback, PREVIEW_SECONDS * 1000);
     }catch(err){
       stopPlayback();
