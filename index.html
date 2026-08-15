@@ -155,7 +155,7 @@
   .toolbar input[type=text]::placeholder{ color:var(--text-faint); }
 
   .list-head{
-    display:grid; grid-template-columns:78px 1fr 90px 100px 44px 44px;
+    display:grid; grid-template-columns:78px 1fr 70px 90px 100px 44px 44px;
     padding:0 14px 8px; gap:14px;
     font-family:var(--mono); font-size:10px; letter-spacing:0.1em;
     color:var(--text-faint); text-transform:uppercase;
@@ -163,7 +163,7 @@
     margin-bottom:4px;
   }
   .track{
-    display:grid; grid-template-columns:78px 1fr 90px 100px 44px 44px;
+    display:grid; grid-template-columns:78px 1fr 70px 90px 100px 44px 44px;
     align-items:center; gap:14px;
     padding:13px 14px;
     border-bottom:1px solid var(--border-soft);
@@ -190,6 +190,16 @@
   .dl-btn:hover{ border-color:var(--accent); color:var(--accent); }
   .dl-btn:disabled{ opacity:0.4; cursor:default; }
   .del-btn:hover{ border-color:var(--danger); color:var(--danger); }
+  .play-cell{ display:flex; align-items:center; justify-content:center; height:32px; }
+  .play-btn{
+    background:none; border:1px solid var(--border); color:var(--text-dim);
+    width:32px; height:32px; border-radius:4px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; font-size:11px;
+  }
+  .play-btn:hover{ border-color:var(--accent-2); color:var(--accent-2); }
+  .play-btn.loading{ opacity:0.5; cursor:wait; }
+  .waveform{ display:flex; align-items:center; justify-content:center; gap:2px; height:24px; width:60px; cursor:pointer; }
+  .waveform .bar{ width:3px; min-height:3px; background:var(--accent-2); border-radius:1px; height:4px; }
 
   .empty-state{
     text-align:center; padding:60px 20px; color:var(--text-faint);
@@ -207,8 +217,8 @@
 
   @media (max-width:600px){
     .list-head{ display:none; }
-    .track{ grid-template-columns:1fr auto auto; grid-template-areas:"code dl del" "title title title" "meta meta meta"; row-gap:4px; }
-    .code{ grid-area:code; } .dl-btn{ grid-area:dl; justify-self:end; } .del-btn{ grid-area:del; justify-self:end; }
+    .track{ grid-template-columns:1fr auto auto auto; grid-template-areas:"code play dl del" "title title title title" "meta meta meta meta"; row-gap:4px; }
+    .code{ grid-area:code; } .play-cell{ grid-area:play; } .dl-btn{ grid-area:dl; justify-self:end; } .del-btn{ grid-area:del; justify-self:end; }
     .title-cell{ grid-area:title; } .meta{ grid-area:meta; }
   }
 </style>
@@ -267,7 +277,7 @@
     </div>
 
     <div class="list-head">
-      <span>Code</span><span>Title</span><span>Size</span><span>Added</span><span></span>
+      <span>Code</span><span>Title</span><span></span><span>Size</span><span>Added</span><span></span>
     </div>
     <div id="trackList"></div>
     <div class="empty-state" id="emptyState" style="display:none;">No tracks yet — drop MP3 or WAV files above to begin.</div>
@@ -281,6 +291,13 @@
   let manifest = null;
   let manifestSha = null;
   let allTracks = [];
+  let currentAudio = null;
+  let currentAudioCtx = null;
+  let currentRAF = null;
+  let currentTimeout = null;
+  let currentTrackPath = null;
+  let currentPlayCell = null;
+  const PREVIEW_SECONDS = 40;
 
   const $ = id => document.getElementById(id);
 
@@ -549,6 +566,7 @@
 
   async function deleteTrack(track, btn){
     if(!confirm(`Delete "${track.title}" (${track.code})? This removes the audio file permanently.`)) return;
+    if(currentTrackPath === track.path) stopPlayback();
     btn.disabled = true;
     try{
       if(track.sha){
@@ -569,6 +587,111 @@
     }catch(err){
       alert('Could not delete "' + track.title + '": ' + err.message);
       btn.disabled = false;
+    }
+  }
+
+  function renderPlayIcon(cell){
+    cell.innerHTML = '';
+    const btn = document.createElement('button');
+    btn.className = 'play-btn';
+    btn.title = 'Play preview';
+    btn.innerHTML = '&#9654;';
+    cell.appendChild(btn);
+  }
+
+  function renderWaveform(cell){
+    cell.innerHTML = '';
+    const wf = document.createElement('div');
+    wf.className = 'waveform';
+    wf.title = 'Click to stop';
+    for(let i = 0; i < 7; i++){
+      const bar = document.createElement('span');
+      bar.className = 'bar';
+      wf.appendChild(bar);
+    }
+    cell.appendChild(wf);
+  }
+
+  function stopPlayback(){
+    if(currentTimeout) clearTimeout(currentTimeout);
+    if(currentRAF) cancelAnimationFrame(currentRAF);
+    if(currentAudio){
+      currentAudio.pause();
+      if(currentAudio._objectUrl) URL.revokeObjectURL(currentAudio._objectUrl);
+    }
+    if(currentAudioCtx){
+      try{ currentAudioCtx.close(); }catch(e){}
+    }
+    if(currentPlayCell) renderPlayIcon(currentPlayCell);
+    currentAudio = null;
+    currentAudioCtx = null;
+    currentRAF = null;
+    currentTimeout = null;
+    currentTrackPath = null;
+    currentPlayCell = null;
+  }
+
+  async function togglePlay(track, cell){
+    if(currentTrackPath === track.path){
+      stopPlayback();
+      return;
+    }
+    stopPlayback();
+
+    cell.innerHTML = '';
+    const loadingBtn = document.createElement('button');
+    loadingBtn.className = 'play-btn loading';
+    loadingBtn.innerHTML = '&hellip;';
+    loadingBtn.disabled = true;
+    cell.appendChild(loadingBtn);
+
+    try{
+      const res = await fetch(`${API}/repos/${CFG.owner}/${CFG.repo}/contents/${encodeURIComponent(track.path)}`, {
+        headers: ghHeaders({'Accept':'application/vnd.github.v3.raw'})
+      });
+      if(!res.ok) throw new Error('Preview failed to load');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio._objectUrl = url;
+
+      currentAudio = audio;
+      currentTrackPath = track.path;
+      currentPlayCell = cell;
+
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new AudioCtx();
+      const source = ctx.createMediaElementSource(audio);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 64;
+      source.connect(analyser);
+      analyser.connect(ctx.destination);
+      currentAudioCtx = ctx;
+
+      renderWaveform(cell);
+      cell.querySelector('.waveform').addEventListener('click', stopPlayback);
+      const bars = cell.querySelectorAll('.bar');
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+      function animate(){
+        analyser.getByteFrequencyData(dataArray);
+        const step = Math.max(1, Math.floor(dataArray.length / bars.length));
+        bars.forEach((bar, i) => {
+          const v = dataArray[i * step] || 0;
+          bar.style.height = Math.max(3, (v / 255) * 24) + 'px';
+        });
+        currentRAF = requestAnimationFrame(animate);
+      }
+
+      audio.addEventListener('ended', stopPlayback);
+      audio.addEventListener('error', stopPlayback);
+
+      await audio.play();
+      animate();
+      currentTimeout = setTimeout(stopPlayback, PREVIEW_SECONDS * 1000);
+    }catch(err){
+      stopPlayback();
+      alert('Could not preview "' + track.title + '": ' + err.message);
     }
   }
 
@@ -619,6 +742,11 @@
       });
       titleCell.appendChild(titleSpan);
 
+      const playCell = document.createElement('div');
+      playCell.className = 'play-cell';
+      renderPlayIcon(playCell);
+      playCell.addEventListener('click', () => togglePlay(track, playCell));
+
       const size = document.createElement('span');
       size.className = 'meta';
       size.textContent = formatBytes(track.size || 0);
@@ -641,6 +769,7 @@
 
       row.appendChild(code);
       row.appendChild(titleCell);
+      row.appendChild(playCell);
       row.appendChild(size);
       row.appendChild(added);
       row.appendChild(dlBtn);
