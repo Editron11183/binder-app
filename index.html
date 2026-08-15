@@ -250,9 +250,9 @@
 
   <div id="appScreen" style="display:none;">
     <div class="dropzone" id="dropzone">
-      <div class="dz-title">DROP MP3 FILES HERE</div>
+      <div class="dz-title">DROP MP3 OR WAV FILES HERE</div>
       <div class="dz-sub">or click to browse — multiple files supported</div>
-      <input type="file" id="fileInput" multiple>
+      <input type="file" id="fileInput" accept="audio/*" multiple>
     </div>
 
     <div class="progress-panel" id="progressPanel" style="display:none;">
@@ -269,7 +269,7 @@
       <span>Code</span><span>Title</span><span>Size</span><span>Added</span><span></span>
     </div>
     <div id="trackList"></div>
-    <div class="empty-state" id="emptyState" style="display:none;">No tracks yet — drop MP3 files above to begin.</div>
+    <div class="empty-state" id="emptyState" style="display:none;">No tracks yet — drop MP3 or WAV files above to begin.</div>
   </div>
 </main>
 
@@ -381,7 +381,12 @@
   }
 
   function titleFromFilename(name){
-    return name.replace(/\.mp3$/i, '').replace(/[_-]+/g,' ').trim();
+    return name.replace(/\.(mp3|wav)$/i, '').replace(/[_-]+/g,' ').trim();
+  }
+
+  function fileExtension(name){
+    const m = /\.([a-z0-9]+)$/i.exec(name);
+    return m ? m[1].toLowerCase() : 'mp3';
   }
 
   function sanitizeFilename(name){
@@ -450,13 +455,14 @@
       code,
       title: titleFromFilename(file.name),
       path,
+      ext: fileExtension(file.name),
       size: file.size,
       addedAt: new Date().toISOString()
     });
   }
 
   async function handleFiles(fileList){
-    const files = Array.from(fileList).filter(f => /\.mp3$/i.test(f.name) || f.type === 'audio/mpeg');
+    const files = Array.from(fileList).filter(f => /\.(mp3|wav)$/i.test(f.name) || f.type.startsWith('audio/'));
     if(files.length === 0) return;
 
     $('progressPanel').style.display = 'block';
@@ -505,7 +511,7 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = track.title.replace(/[^a-zA-Z0-9 _-]/g,'') + '.mp3';
+      a.download = track.title.replace(/[^a-zA-Z0-9 _-]/g,'') + '.' + (track.ext || 'mp3');
       document.body.appendChild(a);
       a.click();
       a.remove();
