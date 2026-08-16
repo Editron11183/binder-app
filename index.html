@@ -177,6 +177,11 @@
     border-bottom:1px solid var(--border-soft);
     margin-bottom:4px;
   }
+  .group-header{
+    font-family:var(--mono); font-size:11px; letter-spacing:0.08em; text-transform:uppercase;
+    color:var(--accent-2); padding:16px 14px 6px; border-bottom:1px solid var(--border-soft); margin-bottom:2px;
+  }
+  .group-header:first-child{ padding-top:0; }
   .track{
     display:grid; grid-template-columns:78px 1fr 70px 90px 100px 44px 44px;
     align-items:center; gap:14px;
@@ -438,6 +443,40 @@
     return m ? m[1].toLowerCase() : 'mp3';
   }
 
+  // ---------- SFX categorization ----------
+  // Keyword-based, checked in order (first match wins). Broad general-
+  // purpose taxonomy — covers typical royalty-free SFX libraries, not
+  // just the narrow beverage/automotive set from the old Wavecast list.
+  // More specific/compound categories come first so a title like
+  // "ticking alarm clock" lands in Clocks & Alarms rather than a
+  // broader category that happens to share a word like "ring."
+  const SFX_CATEGORIES = [
+    { name: 'Beverages', keywords: ['beer','soda pour','can opening','cola','fizzy drink','coffee cup','pouring drink','wine pour'] },
+    { name: 'Clocks & Alarms', keywords: ['clock','ticking','tick tock','alarm','timer','chime','cuckoo'] },
+    { name: 'Phone & Notifications', keywords: ['phone','dial','hang up','ringtone','cell phone','text message','sms','notification'] },
+    { name: 'Office & Paper', keywords: ['paper','pen ','signature','signing','stapler','tearing','page turn','gavel','stamp','book page','typing','keyboard'] },
+    { name: 'Doors & Footsteps', keywords: ['door','footstep','knock','floor','walk','step'] },
+    { name: 'Cash & Retail', keywords: ['cash register','card payment','checkout','receipt','coin','cash','money'] },
+    { name: 'Kitchen & Appliances', keywords: ['kettle','boiling','stove','kitchen','microwave','fridge','blender','dishwasher'] },
+    { name: 'Construction & Tools', keywords: ['drilling','construction','printer','hammer','saw','drill','power tool','nail gun'] },
+    { name: 'Automotive & Transport', keywords: ['car','honk','engine','horn','brake','tire','traffic','motorcycle','truck','train','helicopter','airplane','plane','jet','siren','ambulance'] },
+    { name: 'Impacts & Foley', keywords: ['impact','thud','smash','punch','slap','break','glass break','wood hit','metal hit','crash'] },
+    { name: 'Nature & Weather', keywords: ['wind','rain','thunder','storm','river','ocean','wave','forest','leaves','water drop'] },
+    { name: 'Animals & Insects', keywords: ['bird','dog bark','cat meow','animal','insect','bug','cricket'] },
+    { name: 'Fire & Weapons', keywords: ['fire','explosion','blast','gun','gunshot','weapon','bomb'] },
+    { name: 'Crowd & Ambience', keywords: ['crowd','cheer','clap','applause','ambience','lobby','party','firework','concert','audience','laughter','chatter'] },
+    { name: 'Human & Body', keywords: ['breath','sigh','laugh','cough','sneeze','heartbeat','scream'] },
+    { name: 'Electronic & UI', keywords: ['beep','click','button','computer','robot','sci-fi','laser','digital','whoosh','swoosh','riser'] }
+  ];
+
+  function categorizeSfx(title){
+    const t = title.toLowerCase();
+    for(const cat of SFX_CATEGORIES){
+      if(cat.keywords.some(kw => t.includes(kw))) return cat.name;
+    }
+    return 'Other';
+  }
+
   async function hashFile(buffer){
     const digest = await crypto.subtle.digest('SHA-256', buffer);
     return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2,'0')).join('');
@@ -519,12 +558,14 @@
     const data = await res.json();
 
     const code = nextSequenceCode(currentTab);
+    const title = titleFromFilename(file.name);
     manifest.tracks.push({
       code,
-      title: titleFromFilename(file.name),
+      title,
       path,
       ext: fileExtension(file.name),
       type: currentTab,
+      category: currentTab === 'sfx' ? categorizeSfx(title) : undefined,
       size: file.size,
       hash,
       sha: data.content.sha,
@@ -779,6 +820,62 @@
     $('counterText').textContent = `${count} ${label}${count === 1 ? '' : 'S'}`;
   }
 
+  function buildTrackRow(track){
+    const row = document.createElement('div');
+    row.className = 'track';
+
+    const code = document.createElement('span');
+    code.className = 'code';
+    code.textContent = track.code;
+
+    const titleCell = document.createElement('div');
+    titleCell.className = 'title-cell';
+    const titleSpan = document.createElement('span');
+    titleSpan.className = 'title-text';
+    titleSpan.textContent = track.title;
+    titleSpan.contentEditable = 'true';
+    titleSpan.spellcheck = false;
+    titleSpan.addEventListener('blur', () => renameTrack(track, titleSpan.textContent, titleSpan));
+    titleSpan.addEventListener('keydown', e => {
+      if(e.key === 'Enter'){ e.preventDefault(); titleSpan.blur(); }
+    });
+    titleCell.appendChild(titleSpan);
+
+    const playCell = document.createElement('div');
+    playCell.className = 'play-cell';
+    renderPlayIcon(playCell);
+    playCell.addEventListener('click', () => togglePlay(track, playCell));
+
+    const size = document.createElement('span');
+    size.className = 'meta';
+    size.textContent = formatBytes(track.size || 0);
+
+    const added = document.createElement('span');
+    added.className = 'meta';
+    added.textContent = track.addedAt ? track.addedAt.slice(0,10) : '—';
+
+    const dlBtn = document.createElement('button');
+    dlBtn.className = 'dl-btn';
+    dlBtn.title = 'Download';
+    dlBtn.innerHTML = '&#8595;';
+    dlBtn.addEventListener('click', () => downloadTrack(track, dlBtn));
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'dl-btn del-btn';
+    delBtn.title = 'Delete';
+    delBtn.innerHTML = '&#10005;';
+    delBtn.addEventListener('click', () => deleteTrack(track, delBtn));
+
+    row.appendChild(code);
+    row.appendChild(titleCell);
+    row.appendChild(playCell);
+    row.appendChild(size);
+    row.appendChild(added);
+    row.appendChild(dlBtn);
+    row.appendChild(delBtn);
+    return row;
+  }
+
   function renderTracks(){
     const q = $('searchInput').value.trim().toLowerCase();
     const inTab = manifest.tracks.filter(t => (t.type || 'music') === currentTab);
@@ -794,61 +891,23 @@
       ? 'No sound effects yet — drop MP3 or WAV files above to begin.'
       : 'No tracks yet — drop MP3 or WAV files above to begin.';
 
-    filtered.forEach(track => {
-      const row = document.createElement('div');
-      row.className = 'track';
-
-      const code = document.createElement('span');
-      code.className = 'code';
-      code.textContent = track.code;
-
-      const titleCell = document.createElement('div');
-      titleCell.className = 'title-cell';
-      const titleSpan = document.createElement('span');
-      titleSpan.className = 'title-text';
-      titleSpan.textContent = track.title;
-      titleSpan.contentEditable = 'true';
-      titleSpan.spellcheck = false;
-      titleSpan.addEventListener('blur', () => renameTrack(track, titleSpan.textContent, titleSpan));
-      titleSpan.addEventListener('keydown', e => {
-        if(e.key === 'Enter'){ e.preventDefault(); titleSpan.blur(); }
+    if(currentTab === 'sfx' && filtered.length > 0){
+      const order = SFX_CATEGORIES.map(c => c.name).concat(['Other']);
+      const groups = {};
+      filtered.forEach(t => {
+        const cat = t.category || 'Other';
+        (groups[cat] = groups[cat] || []).push(t);
       });
-      titleCell.appendChild(titleSpan);
-
-      const playCell = document.createElement('div');
-      playCell.className = 'play-cell';
-      renderPlayIcon(playCell);
-      playCell.addEventListener('click', () => togglePlay(track, playCell));
-
-      const size = document.createElement('span');
-      size.className = 'meta';
-      size.textContent = formatBytes(track.size || 0);
-
-      const added = document.createElement('span');
-      added.className = 'meta';
-      added.textContent = track.addedAt ? track.addedAt.slice(0,10) : '—';
-
-      const dlBtn = document.createElement('button');
-      dlBtn.className = 'dl-btn';
-      dlBtn.title = 'Download';
-      dlBtn.innerHTML = '&#8595;';
-      dlBtn.addEventListener('click', () => downloadTrack(track, dlBtn));
-
-      const delBtn = document.createElement('button');
-      delBtn.className = 'dl-btn del-btn';
-      delBtn.title = 'Delete';
-      delBtn.innerHTML = '&#10005;';
-      delBtn.addEventListener('click', () => deleteTrack(track, delBtn));
-
-      row.appendChild(code);
-      row.appendChild(titleCell);
-      row.appendChild(playCell);
-      row.appendChild(size);
-      row.appendChild(added);
-      row.appendChild(dlBtn);
-      row.appendChild(delBtn);
-      list.appendChild(row);
-    });
+      order.filter(cat => groups[cat]).forEach(cat => {
+        const header = document.createElement('div');
+        header.className = 'group-header';
+        header.textContent = `${cat} (${groups[cat].length})`;
+        list.appendChild(header);
+        groups[cat].forEach(track => list.appendChild(buildTrackRow(track)));
+      });
+    } else {
+      filtered.forEach(track => list.appendChild(buildTrackRow(track)));
+    }
   }
 
   $('searchInput').addEventListener('input', renderTracks);
