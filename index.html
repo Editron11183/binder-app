@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -34,6 +35,7 @@
   }
   ::selection{ background:var(--accent-dim); color:var(--bg); }
 
+  /* ---- Header ---- */
   header{
     border-bottom:1px solid var(--border);
     padding:28px 32px 22px;
@@ -77,6 +79,16 @@
 
   main{ max-width:920px; margin:0 auto; padding:36px 32px 80px; }
 
+  .tab-bar{ display:flex; gap:6px; margin-bottom:28px; border-bottom:1px solid var(--border); }
+  .tab-btn{
+    background:none; border:none; color:var(--text-dim);
+    font-family:var(--mono); font-size:12px; letter-spacing:0.08em; text-transform:uppercase;
+    padding:10px 16px; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px;
+  }
+  .tab-btn:hover{ color:var(--text); }
+  .tab-btn.active{ color:var(--accent); border-bottom-color:var(--accent); }
+
+  /* ---- Config screen ---- */
   .config-panel{
     max-width:480px; margin:60px auto; background:var(--surface);
     border:1px solid var(--border); border-radius:6px; padding:32px;
@@ -114,6 +126,7 @@
     color:#e08b78; font-size:12px; padding:10px 12px; border-radius:4px; margin-top:14px;
   }
 
+  /* ---- Drop zone ---- */
   .dropzone{
     border:1px dashed var(--border);
     border-radius:6px;
@@ -143,6 +156,7 @@
     cursor:pointer;
   }
 
+  /* ---- Search / toolbar ---- */
   .toolbar{
     display:flex; align-items:center; gap:12px; margin-bottom:18px;
   }
@@ -154,6 +168,7 @@
   .toolbar input[type=text]:focus{ outline:none; border-color:var(--accent-dim); }
   .toolbar input[type=text]::placeholder{ color:var(--text-faint); }
 
+  /* ---- Track list ---- */
   .list-head{
     display:grid; grid-template-columns:78px 1fr 70px 90px 100px 44px 44px;
     padding:0 14px 8px; gap:14px;
@@ -206,6 +221,7 @@
     font-family:var(--mono); font-size:12px; letter-spacing:0.04em;
   }
 
+  /* ---- Upload progress ---- */
   .progress-panel{
     background:var(--surface); border:1px solid var(--border); border-radius:6px;
     padding:14px 16px; margin-bottom:20px; font-family:var(--mono); font-size:12px;
@@ -260,6 +276,11 @@
   </div>
 
   <div id="appScreen" style="display:none;">
+    <div class="tab-bar">
+      <button class="tab-btn active" id="tabMusic">Music</button>
+      <button class="tab-btn" id="tabSfx">SFX</button>
+    </div>
+
     <div class="dropzone" id="dropzone">
       <div class="dz-title">DROP MP3 OR WAV FILES HERE</div>
       <div class="dz-sub">or click to browse — multiple files supported</div>
@@ -287,10 +308,11 @@
 <script>
 (function(){
   const API = 'https://api.github.com';
-  let CFG = null;
-  let manifest = null;
+  let CFG = null;         // {owner, repo, token}
+  let manifest = null;    // {tracks:[...]}
   let manifestSha = null;
   let allTracks = [];
+  let currentTab = 'music'; // 'music' or 'sfx'
   let currentAudio = null;
   let currentAudioCtx = null;
   let currentRAF = null;
@@ -305,6 +327,7 @@
 
   const $ = id => document.getElementById(id);
 
+  // ---------- Config ----------
   function loadConfig(){
     const raw = sessionStorage.getItem('binder_config');
     if(raw){ try{ CFG = JSON.parse(raw); }catch(e){ CFG = null; } }
@@ -365,6 +388,7 @@
     $('appScreen').style.display = 'block';
   }
 
+  // ---------- Manifest ----------
   async function fetchManifest(){
     const res = await fetch(`${API}/repos/${CFG.owner}/${CFG.repo}/contents/manifest.json`, { headers: ghHeaders() });
     if(res.status === 404){
@@ -393,13 +417,16 @@
     manifestSha = data.content.sha;
   }
 
-  function nextSequenceCode(){
+  function nextSequenceCode(type){
+    const prefix = type === 'sfx' ? 'SFX-' : 'BB-';
     let max = 0;
     manifest.tracks.forEach(t => {
-      const m = /^BB-(\d+)$/.exec(t.code || '');
+      if((t.type || 'music') !== type) return;
+      const re = new RegExp('^' + prefix + '(\\d+)$');
+      const m = re.exec(t.code || '');
       if(m) max = Math.max(max, parseInt(m[1], 10));
     });
-    return 'BB-' + String(max + 1).padStart(3, '0');
+    return prefix + String(max + 1).padStart(3, '0');
   }
 
   function titleFromFilename(name){
@@ -420,6 +447,7 @@
     return name.replace(/[^a-zA-Z0-9._-]/g, '_');
   }
 
+  // ---------- Upload ----------
   function arrayBufferToBase64(buffer){
     let binary = '';
     const bytes = new Uint8Array(buffer);
@@ -437,6 +465,9 @@
 
   function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
 
+  // GitHub throttles rapid successive writes ("secondary rate limit"), which
+  // shows up as a 403 with a Retry-After style message. Space writes out and
+  // back off automatically if it happens anyway.
   const UPLOAD_PACING_MS = 1500;
 
   async function putWithRetry(path, body, label, maxRetries){
@@ -451,7 +482,7 @@
 
       const isRateLimited = res.status === 403 || res.status === 429;
       if(isRateLimited && attempt < maxRetries){
-        const waitSec = 15 * (attempt + 1);
+        const waitSec = 15 * (attempt + 1); // 15s, 30s, 45s backoff
         $('progressFile').textContent = `Rate limited by GitHub — retrying "${label}" in ${waitSec}s…`;
         await sleep(waitSec * 1000);
         continue;
@@ -487,12 +518,13 @@
     }, file.name);
     const data = await res.json();
 
-    const code = nextSequenceCode();
+    const code = nextSequenceCode(currentTab);
     manifest.tracks.push({
       code,
       title: titleFromFilename(file.name),
       path,
       ext: fileExtension(file.name),
+      type: currentTab,
       size: file.size,
       hash,
       sha: data.content.sha,
@@ -519,8 +551,10 @@
         if(err.message.startsWith('Skipped duplicate')) duplicates.push(err.message);
         else failures.push(err.message);
       }
+      // Checkpoint the catalog every 10 tracks so progress survives even if
+      // a later file fails or the tab gets closed mid-batch.
       if(sinceCheckpoint >= 10){
-        try{ await saveManifest(); sinceCheckpoint = 0; }catch(e){}
+        try{ await saveManifest(); sinceCheckpoint = 0; }catch(e){ /* will retry at final save */ }
       }
       if(i < files.length - 1) await sleep(UPLOAD_PACING_MS);
     }
@@ -545,6 +579,7 @@
     }
   }
 
+  // ---------- Download ----------
   async function downloadTrack(track, btn){
     btn.disabled = true;
     try{
@@ -568,6 +603,7 @@
     }
   }
 
+  // ---------- Delete ----------
   async function deleteTrack(track, btn){
     if(!confirm(`Delete "${track.title}" (${track.code})? This removes the audio file permanently.`)) return;
     if(currentTrackPath === track.path) stopPlayback();
@@ -594,6 +630,7 @@
     }
   }
 
+  // ---------- Preview playback ----------
   function renderPlayIcon(cell){
     cell.innerHTML = '';
     const btn = document.createElement('button');
@@ -735,20 +772,27 @@
     }
   }
 
+  // ---------- Render ----------
   function updateCounter(){
-    $('counterText').textContent = `${manifest.tracks.length} TRACK${manifest.tracks.length === 1 ? '' : 'S'}`;
+    const count = manifest.tracks.filter(t => (t.type || 'music') === currentTab).length;
+    const label = currentTab === 'sfx' ? 'EFFECT' : 'TRACK';
+    $('counterText').textContent = `${count} ${label}${count === 1 ? '' : 'S'}`;
   }
 
   function renderTracks(){
     const q = $('searchInput').value.trim().toLowerCase();
-    allTracks = manifest.tracks.slice().sort((a,b) => a.code.localeCompare(b.code));
+    const inTab = manifest.tracks.filter(t => (t.type || 'music') === currentTab);
+    allTracks = inTab.slice().sort((a,b) => a.code.localeCompare(b.code));
     const filtered = q
       ? allTracks.filter(t => t.title.toLowerCase().includes(q) || t.code.toLowerCase().includes(q))
       : allTracks;
 
     const list = $('trackList');
     list.innerHTML = '';
-    $('emptyState').style.display = (manifest.tracks.length === 0) ? 'block' : 'none';
+    $('emptyState').style.display = (inTab.length === 0) ? 'block' : 'none';
+    $('emptyState').textContent = currentTab === 'sfx'
+      ? 'No sound effects yet — drop MP3 or WAV files above to begin.'
+      : 'No tracks yet — drop MP3 or WAV files above to begin.';
 
     filtered.forEach(track => {
       const row = document.createElement('div');
@@ -809,6 +853,22 @@
 
   $('searchInput').addEventListener('input', renderTracks);
 
+  function switchTab(tab){
+    if(currentTab === tab) return;
+    currentTab = tab;
+    $('tabMusic').classList.toggle('active', tab === 'music');
+    $('tabSfx').classList.toggle('active', tab === 'sfx');
+    $('dropzone').querySelector('.dz-title').textContent = tab === 'sfx'
+      ? 'DROP SFX FILES HERE'
+      : 'DROP MP3 OR WAV FILES HERE';
+    $('searchInput').value = '';
+    renderTracks();
+    updateCounter();
+  }
+  $('tabMusic').addEventListener('click', () => switchTab('music'));
+  $('tabSfx').addEventListener('click', () => switchTab('sfx'));
+
+  // ---------- Dropzone ----------
   const dz = $('dropzone');
   $('fileInput').addEventListener('change', e => { handleFiles(e.target.files); e.target.value = ''; });
   ['dragenter','dragover'].forEach(evt => dz.addEventListener(evt, e => {
@@ -819,6 +879,7 @@
   }));
   dz.addEventListener('drop', e => handleFiles(e.dataTransfer.files));
 
+  // ---------- Init ----------
   async function init(){
     try{
       await fetchManifest();
