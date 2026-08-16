@@ -565,7 +565,6 @@
       path,
       ext: fileExtension(file.name),
       type: currentTab,
-      category: currentTab === 'sfx' ? categorizeSfx(title) : undefined,
       size: file.size,
       hash,
       sha: data.content.sha,
@@ -895,7 +894,7 @@
       const order = SFX_CATEGORIES.map(c => c.name).concat(['Other']);
       const groups = {};
       filtered.forEach(t => {
-        const cat = t.category || 'Other';
+        const cat = categorizeSfx(t.title);
         (groups[cat] = groups[cat] || []).push(t);
       });
       order.filter(cat => groups[cat]).forEach(cat => {
