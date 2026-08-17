@@ -180,8 +180,20 @@
   .group-header{
     font-family:var(--mono); font-size:11px; letter-spacing:0.08em; text-transform:uppercase;
     color:var(--accent-2); padding:16px 14px 6px; border-bottom:1px solid var(--border-soft); margin-bottom:2px;
+    cursor:pointer; display:flex; align-items:center; justify-content:space-between; user-select:none;
   }
+  .group-header:hover{ color:var(--accent); }
+  .group-header .group-arrow{ font-size:9px; opacity:0.6; transition:transform 0.15s; }
+  .group-header.collapsed .group-arrow{ transform:rotate(-90deg); }
   .group-header:first-child{ padding-top:0; }
+  .group-body{ display:block; }
+  .group-body.collapsed{ display:none; }
+  .expand-all-btn{
+    background:none; border:1px solid var(--border); color:var(--text-dim);
+    font-family:var(--mono); font-size:11px; letter-spacing:0.04em;
+    padding:7px 12px; border-radius:4px; cursor:pointer; white-space:nowrap;
+  }
+  .expand-all-btn:hover{ border-color:var(--accent-2); color:var(--accent-2); }
   .track{
     display:grid; grid-template-columns:78px 1fr 70px 90px 100px 44px 44px;
     align-items:center; gap:14px;
@@ -300,6 +312,7 @@
 
     <div class="toolbar">
       <input type="text" id="searchInput" placeholder="Search by title or sequence code…">
+      <button class="expand-all-btn" id="expandAllBtn" style="display:none;">Collapse all</button>
     </div>
 
     <div class="list-head">
@@ -318,6 +331,7 @@
   let manifestSha = null;
   let allTracks = [];
   let currentTab = 'music'; // 'music' or 'sfx'
+  const collapsedCategories = new Set();
   let currentAudio = null;
   let currentAudioCtx = null;
   let currentRAF = null;
@@ -890,6 +904,7 @@
       ? 'No sound effects yet — drop MP3 or WAV files above to begin.'
       : 'No tracks yet — drop MP3 or WAV files above to begin.';
 
+    const expandBtn = $('expandAllBtn');
     if(currentTab === 'sfx' && filtered.length > 0){
       const order = SFX_CATEGORIES.map(c => c.name).concat(['Other']);
       const groups = {};
@@ -897,14 +912,42 @@
         const cat = categorizeSfx(t.title);
         (groups[cat] = groups[cat] || []).push(t);
       });
-      order.filter(cat => groups[cat]).forEach(cat => {
+      const activeCats = order.filter(cat => groups[cat]);
+
+      expandBtn.style.display = 'inline-block';
+      const anyExpanded = activeCats.some(cat => !collapsedCategories.has(cat));
+      expandBtn.textContent = anyExpanded ? 'Collapse all' : 'Expand all';
+      expandBtn.onclick = () => {
+        if(anyExpanded) activeCats.forEach(cat => collapsedCategories.add(cat));
+        else activeCats.forEach(cat => collapsedCategories.delete(cat));
+        renderTracks();
+      };
+
+      activeCats.forEach(cat => {
+        const isCollapsed = collapsedCategories.has(cat);
         const header = document.createElement('div');
-        header.className = 'group-header';
-        header.textContent = `${cat} (${groups[cat].length})`;
+        header.className = 'group-header' + (isCollapsed ? ' collapsed' : '');
+        const label = document.createElement('span');
+        label.textContent = `${cat} (${groups[cat].length})`;
+        const arrow = document.createElement('span');
+        arrow.className = 'group-arrow';
+        arrow.textContent = '▾';
+        header.appendChild(label);
+        header.appendChild(arrow);
+        header.addEventListener('click', () => {
+          if(collapsedCategories.has(cat)) collapsedCategories.delete(cat);
+          else collapsedCategories.add(cat);
+          renderTracks();
+        });
         list.appendChild(header);
-        groups[cat].forEach(track => list.appendChild(buildTrackRow(track)));
+
+        const body = document.createElement('div');
+        body.className = 'group-body' + (isCollapsed ? ' collapsed' : '');
+        groups[cat].forEach(track => body.appendChild(buildTrackRow(track)));
+        list.appendChild(body);
       });
     } else {
+      expandBtn.style.display = 'none';
       filtered.forEach(track => list.appendChild(buildTrackRow(track)));
     }
   }
