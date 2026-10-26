@@ -1,4 +1,5 @@
 
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -87,6 +88,28 @@
   }
   .tab-btn:hover{ color:var(--text); }
   .tab-btn.active{ color:var(--accent); border-bottom-color:var(--accent); }
+  .tab-bar{ overflow-x:auto; }
+  .tab-btn{ white-space:nowrap; }
+
+  /* ---- AI Voices: upload target + group chip ---- */
+  .voice-target{
+    display:flex; align-items:center; gap:8px; margin-bottom:14px;
+    font-family:var(--mono); font-size:11px; letter-spacing:0.06em; color:var(--text-dim);
+    text-transform:uppercase; flex-wrap:wrap;
+  }
+  .seg-btn{
+    background:none; border:1px solid var(--border); color:var(--text-dim);
+    font-family:var(--mono); font-size:11px; letter-spacing:0.04em;
+    padding:6px 12px; border-radius:4px; cursor:pointer;
+  }
+  .seg-btn:hover{ border-color:var(--accent-2); color:var(--accent-2); }
+  .seg-btn.active{ border-color:var(--accent); color:var(--accent); background:rgba(201,154,75,0.08); }
+  .group-chip{
+    display:inline-block; margin-top:4px; background:none; border:1px solid var(--border-soft);
+    color:var(--text-faint); font-family:var(--mono); font-size:10px; letter-spacing:0.04em;
+    padding:2px 7px; border-radius:3px; cursor:pointer;
+  }
+  .group-chip:hover{ border-color:var(--accent-2); color:var(--accent-2); }
 
   /* ---- Config screen ---- */
   .config-panel{
@@ -294,8 +317,16 @@
 
   <div id="appScreen" style="display:none;">
     <div class="tab-bar">
-      <button class="tab-btn active" id="tabMusic">Music</button>
-      <button class="tab-btn" id="tabSfx">SFX</button>
+      <button class="tab-btn active" data-tab="music">Music</button>
+      <button class="tab-btn" data-tab="sfx">SFX</button>
+      <button class="tab-btn" data-tab="ai-music">AI Soundtracks</button>
+      <button class="tab-btn" data-tab="ai-voice">AI Voices</button>
+    </div>
+
+    <div class="voice-target" id="voiceTarget" style="display:none;">
+      <span>Upload to:</span>
+      <button class="seg-btn active" data-group="Design & Content">Design &amp; Content</button>
+      <button class="seg-btn" data-group="Voice Agents">Voice Agents</button>
     </div>
 
     <div class="dropzone" id="dropzone">
@@ -330,7 +361,18 @@
   let manifest = null;    // {tracks:[...]}
   let manifestSha = null;
   let allTracks = [];
-  let currentTab = 'music'; // 'music' or 'sfx'
+  let currentTab = 'music'; // key of TABS
+
+  // Each tab is its own namespace in the same manifest (via track.type),
+  // so Wavecast/Vega keep reading one catalog.
+  const TABS = {
+    'music':    { prefix:'BB-',  unit:'TRACK',      drop:'DROP MP3 OR WAV FILES HERE',  empty:'No tracks yet — drop MP3 or WAV files above to begin.' },
+    'sfx':      { prefix:'SFX-', unit:'EFFECT',     drop:'DROP SFX FILES HERE',         empty:'No sound effects yet — drop MP3 or WAV files above to begin.' },
+    'ai-music': { prefix:'AIS-', unit:'SOUNDTRACK', drop:'DROP AI SOUNDTRACKS HERE',    empty:'No AI soundtracks yet — drop your Stable Audio exports above.' },
+    'ai-voice': { prefix:'AIV-', unit:'VOICE',      drop:'DROP AI VOICE FILES HERE',    empty:'No AI voices yet — pick a group, then drop files above.' }
+  };
+  const VOICE_GROUPS = ['Design & Content', 'Voice Agents'];
+  let voiceUploadGroup = VOICE_GROUPS[0];
   const collapsedCategories = new Set();
   let currentAudio = null;
   let currentAudioCtx = null;
@@ -437,7 +479,7 @@
   }
 
   function nextSequenceCode(type){
-    const prefix = type === 'sfx' ? 'SFX-' : 'BB-';
+    const prefix = (TABS[type] || TABS.music).prefix;
     let max = 0;
     manifest.tracks.forEach(t => {
       if((t.type || 'music') !== type) return;
@@ -573,7 +615,7 @@
 
     const code = nextSequenceCode(currentTab);
     const title = titleFromFilename(file.name);
-    manifest.tracks.push({
+    const entry = {
       code,
       title,
       path,
@@ -583,7 +625,9 @@
       hash,
       sha: data.content.sha,
       addedAt: new Date().toISOString()
-    });
+    };
+    if(currentTab === 'ai-voice') entry.group = voiceUploadGroup;
+    manifest.tracks.push(entry);
   }
 
   async function handleFiles(fileList){
@@ -829,7 +873,7 @@
   // ---------- Render ----------
   function updateCounter(){
     const count = manifest.tracks.filter(t => (t.type || 'music') === currentTab).length;
-    const label = currentTab === 'sfx' ? 'EFFECT' : 'TRACK';
+    const label = (TABS[currentTab] || TABS.music).unit;
     $('counterText').textContent = `${count} ${label}${count === 1 ? '' : 'S'}`;
   }
 
@@ -853,6 +897,22 @@
       if(e.key === 'Enter'){ e.preventDefault(); titleSpan.blur(); }
     });
     titleCell.appendChild(titleSpan);
+
+    // AI Voices: chip shows the group; click to move it to the other group.
+    if((track.type || 'music') === 'ai-voice'){
+      const chip = document.createElement('button');
+      chip.className = 'group-chip';
+      chip.textContent = voiceGroupOf(track) + ' ⇄';
+      chip.title = 'Move to the other group';
+      chip.addEventListener('click', async () => {
+        const prev = track.group;
+        track.group = voiceGroupOf(track) === VOICE_GROUPS[0] ? VOICE_GROUPS[1] : VOICE_GROUPS[0];
+        try{ await saveManifest(); renderTracks(); }
+        catch(err){ track.group = prev; alert('Could not move "' + track.title + '": ' + err.message); }
+      });
+      titleCell.appendChild(document.createElement('br'));
+      titleCell.appendChild(chip);
+    }
 
     const playCell = document.createElement('div');
     playCell.className = 'play-cell';
@@ -900,16 +960,15 @@
     const list = $('trackList');
     list.innerHTML = '';
     $('emptyState').style.display = (inTab.length === 0) ? 'block' : 'none';
-    $('emptyState').textContent = currentTab === 'sfx'
-      ? 'No sound effects yet — drop MP3 or WAV files above to begin.'
-      : 'No tracks yet — drop MP3 or WAV files above to begin.';
+    $('emptyState').textContent = (TABS[currentTab] || TABS.music).empty;
 
     const expandBtn = $('expandAllBtn');
-    if(currentTab === 'sfx' && filtered.length > 0){
-      const order = SFX_CATEGORIES.map(c => c.name).concat(['Other']);
+    const grouper = groupingFor(currentTab);
+    if(grouper && filtered.length > 0){
+      const order = grouper.order;
       const groups = {};
       filtered.forEach(t => {
-        const cat = categorizeSfx(t.title);
+        const cat = grouper.of(t);
         (groups[cat] = groups[cat] || []).push(t);
       });
       const activeCats = order.filter(cat => groups[cat]);
@@ -954,20 +1013,33 @@
 
   $('searchInput').addEventListener('input', renderTracks);
 
+  function voiceGroupOf(track){
+    return VOICE_GROUPS.includes(track.group) ? track.group : VOICE_GROUPS[0];
+  }
+
+  // Tabs that render as collapsible groups. Music and AI Soundtracks stay flat.
+  function groupingFor(tab){
+    if(tab === 'sfx') return { order: SFX_CATEGORIES.map(c => c.name).concat(['Other']), of: t => categorizeSfx(t.title) };
+    if(tab === 'ai-voice') return { order: VOICE_GROUPS, of: voiceGroupOf };
+    return null;
+  }
+
   function switchTab(tab){
-    if(currentTab === tab) return;
+    if(currentTab === tab || !TABS[tab]) return;
     currentTab = tab;
-    $('tabMusic').classList.toggle('active', tab === 'music');
-    $('tabSfx').classList.toggle('active', tab === 'sfx');
-    $('dropzone').querySelector('.dz-title').textContent = tab === 'sfx'
-      ? 'DROP SFX FILES HERE'
-      : 'DROP MP3 OR WAV FILES HERE';
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    $('dropzone').querySelector('.dz-title').textContent = TABS[tab].drop;
+    $('voiceTarget').style.display = tab === 'ai-voice' ? 'flex' : 'none';
     $('searchInput').value = '';
     renderTracks();
     updateCounter();
   }
-  $('tabMusic').addEventListener('click', () => switchTab('music'));
-  $('tabSfx').addEventListener('click', () => switchTab('sfx'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+
+  document.querySelectorAll('#voiceTarget .seg-btn').forEach(b => b.addEventListener('click', () => {
+    voiceUploadGroup = b.dataset.group;
+    document.querySelectorAll('#voiceTarget .seg-btn').forEach(x => x.classList.toggle('active', x === b));
+  }));
 
   // ---------- Dropzone ----------
   const dz = $('dropzone');
